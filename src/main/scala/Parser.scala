@@ -3,7 +3,11 @@ import java.nio.file.Paths
 import akka.actor.ActorSystem
 import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
 import akka.stream._
+import akka.stream.scaladsl.GraphDSL.Implicits._
 import akka.util.ByteString
+
+import scala.concurrent.Await
+import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
 
 object Parser extends App{
@@ -14,7 +18,7 @@ class HDUParser() extends GraphStage[FlowShape[DataBlockWithHeader, DataBlockWit
   val in = Inlet[DataBlockWithHeader]("HDUParser.in")
   val out = Outlet[DataBlockWithHeader]("HDUParser.out")
 
-  val shape = FlowShape.of(in, out)
+  override def shape = FlowShape.of(in, out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
     new GraphStageLogic(shape) {
@@ -75,7 +79,7 @@ class PrimaryHDUParser() extends GraphStage[FlowShape[ByteString, DataBlockWithH
   val in = Inlet[ByteString]("PrimaryHDUParser.in")
   val out = Outlet[DataBlockWithHeader]("PrimaryHDUParser.out")
 
-  val shape = FlowShape.of(in, out)
+  override def shape = FlowShape.of(in, out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
     new GraphStageLogic(shape) {
@@ -127,11 +131,22 @@ class PrimaryHDUParser() extends GraphStage[FlowShape[ByteString, DataBlockWithH
   implicit val materializer = ActorMaterializer()
   val file = Paths.get("kplr002013502-2009131105131_llc.fits")
 
-  FileIO.fromPath(file, 2880)
-      .via(new PrimaryHDUParser)
-      .via(new HDUParser)
-    .to(Sink.foreach(e=>println(e._2)))
-    .run()
-    .onComplete(_ => system.terminate())
+  val resultSink = Sink.seq[ByteString]
 
+  val g = RunnableGraph.fromGraph(GraphDSL.create(resultSink) { implicit builder => sink =>
+
+    val B = builder.add(new PrimaryHDUParser())
+    val C = builder.add(new HDUParser())
+    val D = builder.add(Flow[DataBlockWithHeader].map { s => println(s._2); s._2 })
+    val debut = System.currentTimeMillis()
+
+    FileIO.fromPath(file, 2880) ~> B.in; B.out ~> C.in; C.out ~> D.in;
+    D.out ~> sink.in;
+    val fin = System.currentTimeMillis()
+    println(s"Duration : ${(fin-debut)}")
+    ClosedShape
+  })
+  val r = g.run().onComplete(_ => system.terminate())
+    // .onComplete()
+ // Await.result(r, 1.seconds)
 }
