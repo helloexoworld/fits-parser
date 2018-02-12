@@ -1,152 +1,66 @@
+package helloexoworld.fits.parser
+
 import java.nio.file.Paths
 
 import akka.actor.ActorSystem
-import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
+import akka.dispatch.Filter
 import akka.stream._
+import akka.stream.scaladsl._
 import akka.stream.scaladsl.GraphDSL.Implicits._
 import akka.util.ByteString
+import helloexoworld.fits.parser.pipeline.stages.dataformat.{DataBlockWithHeader, DataPoint, DataTable}
+import helloexoworld.fits.parser.pipeline.stages.{BinTableStage, HDUParserStage, PrimaryHDUParserStage, Upload2Warp10Stage}
+import org.http4s.Uri
 
 import scala.concurrent.Await
-import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration._
 
 object Parser extends App{
 
-type DataBlockWithHeader=Tuple2[Map[String, String],ByteString]
-class HDUParser() extends GraphStage[FlowShape[DataBlockWithHeader, DataBlockWithHeader]] {
-
-  val in = Inlet[DataBlockWithHeader]("HDUParser.in")
-  val out = Outlet[DataBlockWithHeader]("HDUParser.out")
-
-  override def shape = FlowShape.of(in, out)
-
-  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new GraphStageLogic(shape) {
-      var primaryHeaders=Map[String, String]()
-      var headers=Map[String, String]()
-      var isInHeaders = true
-      var naxisDimSize = List.empty
-      var dataBlockRemining = 0
-
-      setHandler(in, new InHandler {
-        override def onPush(): Unit =
-          if(isInHeaders) {
-            val (entete, block) = grab(in)
-            primaryHeaders = entete
-            println("########################################       block      #####")
-            val lines = block.utf8String
-              .grouped(80)
-              .toList
-              .map{s =>
-                val key = s.take(8)
-                val value = s.substring(10) match {
-                  case s:String if s.startsWith("\'") =>
-                    val posQuote = s.indexOf('\'', 1)
-                    s.substring(0, posQuote+1)
-                  case s:String if s.indexOf ('/') < 11 => ""
-                  case s : String => s.substring (10, s.indexOf ('/') )
-
-                }
-                key.trim -> value.trim
-              }
-
-            headers=headers++lines.toMap
-            lines.foreach(println)
-            if(lines.toMap.keySet.contains("END")){
-              isInHeaders=false
-              val dataLength = (
-                headers.get("NAXIS1").map(s => s.toInt).getOrElse(0)
-                  *  headers.get("NAXIS2").map(s => s.toInt).getOrElse(0))
-              val blocIncomplet = if(dataLength%2880 > 0) {1}else{0}
-              dataBlockRemining = dataLength / 2880 + blocIncomplet
-              println(s"Fin des headers => waiting $dataBlockRemining data blocks ")
-            }
-            pull(in)
-          }else{
-            dataBlockRemining= dataBlockRemining-1
-            if(dataBlockRemining==0)isInHeaders=true
-            push(out, (primaryHeaders++headers, grab(in)._2))
-          }
-      }
-      )
-      setHandler(out, new OutHandler {
-        override def onPull(): Unit = { pull(in) }
-      })
-    }
-}
-class PrimaryHDUParser() extends GraphStage[FlowShape[ByteString, DataBlockWithHeader]] {
-
-  val in = Inlet[ByteString]("PrimaryHDUParser.in")
-  val out = Outlet[DataBlockWithHeader]("PrimaryHDUParser.out")
-
-  override def shape = FlowShape.of(in, out)
-
-  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new GraphStageLogic(shape) {
-      var headers=Map[String, String]()
-      var isInHeaders = true
-      var naxisDimSize = List.empty
-
-      setHandler(in, new InHandler {
-        override def onPush(): Unit =
-          if(isInHeaders) {
-            val block:ByteString = grab(in)
-            println("########################################       primary block      #####")
-            val lines = block.utf8String
-              .grouped(80)
-              .toList
-              .map{s =>
-                val key = s.take(8)
-                val value = s.substring(10) match {
-                  case s:String if s.startsWith("\'") =>
-                    val posQuote = s.indexOf('\'', 1)
-                    s.substring(0, posQuote+1)
-                  case s:String if s.indexOf ('/') < 11 => ""
-                  case s : String => s.substring (10, s.indexOf ('/') )
-
-                }
-                key -> value
-              }
-
-            headers=headers++lines.toMap
-            lines.foreach(println)
-            if(lines.toMap.keySet.contains("END     ")){
-              isInHeaders=false
-              println("Fin du primary header")
-            }
-            pull(in)
-          }else{
-            push(out, (headers, grab(in)))
-          }
-      }
-      )
-      setHandler(out, new OutHandler {
-        override def onPull(): Unit = { pull(in) }
-      })
-    }
-}
-
-  import akka.stream.scaladsl._
   implicit val system = ActorSystem("QuickStart")
   implicit val materializer = ActorMaterializer()
   val file = Paths.get("kplr002013502-2009131105131_llc.fits")
 
-  val resultSink = Sink.seq[ByteString]
+  val token = "GjtzhY2Ns6zNejXbwE93MEmbl8JBEZI8H5utnlsqDIsI.tsu8IRthDpUWnKCcXHXNYQs4reE47.FzdJ0I2ruaMXynHJzqD19R67ZD.jIMCB7E9Xam79KFUtJo0YIdTSQ"
+
+  val resultSink = new Upload2Warp10Stage(Uri.uri("http://localhost:8080"), token, 200)
 
   val g = RunnableGraph.fromGraph(GraphDSL.create(resultSink) { implicit builder => sink =>
 
-    val B = builder.add(new PrimaryHDUParser())
-    val C = builder.add(new HDUParser())
-    val D = builder.add(Flow[DataBlockWithHeader].map { s => println(s._2); s._2 })
-    val debut = System.currentTimeMillis()
+    val pHDU = builder.add(new PrimaryHDUParserStage())
+    val hdu = builder.add(new HDUParserStage())
+    val bintable = builder.add(new BinTableStage(List("SAP_FLUX", "PSF_CENTR2"), "KEPLERID"))
 
-    FileIO.fromPath(file, 2880) ~> B.in; B.out ~> C.in; C.out ~> D.in;
-    D.out ~> sink.in;
-    val fin = System.currentTimeMillis()
-    println(s"Duration : ${(fin-debut)}")
+   // val sink = builder.add(new Upload2Warp10Stage(Uri.uri("http://localhost:8080"), token, 200))
+
+    val printer = builder.add(Flow[DataPoint].map { s => println(s); s })
+
+    FileIO.fromPath(file, 2880) ~> pHDU.in;
+    pHDU.out ~> hdu.in;
+    hdu.out ~> bintable.in;
+    bintable.out ~> printer.in;
+    printer.out ~> sink.in;
     ClosedShape
   })
-  val r = g.run().onComplete(_ => system.terminate())
-    // .onComplete()
- // Await.result(r, 1.seconds)
+
+ /* val mat = FileIO.fromPath(file, 2880)
+    .via(new PrimaryHDUParserStage())
+    .via(new HDUParserStage())
+    .via(new BinTableStage(List("SAP_FLUX", "PSF_CENTR2"), "KEPLERID"))
+    .toMat(resultSink)(Keep.right)
+      .run()
+    .onComplete(system.terminate())
+*/
+  val debut = System.currentTimeMillis()
+
+  g.run().onComplete{r =>
+
+    r.fold( error => println(s"parse error : $error"),
+      result => {
+        val fin = System.currentTimeMillis()
+        println(s"${result} points parsés en ${fin-debut} millis")
+      })
+    system.terminate()
+  }
 }
