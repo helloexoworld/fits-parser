@@ -29,6 +29,7 @@ class PrimaryHDUParserStage() extends GraphStage[FlowShape[ByteString, DataBlock
               .filterNot{case(key, _) => key.isEmpty}
 
             headers=headers++lines.toMap
+            lines.foreach(println)
             if(lines.toMap.keySet.contains("END")){
               isInHeaders=false
             }

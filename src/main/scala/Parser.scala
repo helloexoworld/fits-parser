@@ -20,7 +20,8 @@ object Parser extends App{
 
   implicit val system = ActorSystem("QuickStart")
   implicit val materializer = ActorMaterializer()
-  val file = Paths.get("kplr002013502-2009131105131_llc.fits")
+  val file = Paths.get("ktwo200001049-c01_llc.fits")
+  //val file = Paths.get("kplr002013502-2009131105131_llc.fits")
 
   val token = "GjtzhY2Ns6zNejXbwE93MEmbl8JBEZI8H5utnlsqDIsI.tsu8IRthDpUWnKCcXHXNYQs4reE47.FzdJ0I2ruaMXynHJzqD19R67ZD.jIMCB7E9Xam79KFUtJo0YIdTSQ"
 
@@ -40,6 +41,7 @@ object Parser extends App{
     pHDU.out ~> hdu.in;
     hdu.out ~> bintable.in;
     bintable.out ~> printer.in;
+     bintable.out ~> printer.in;
     printer.out ~> sink.in;
     ClosedShape
   })

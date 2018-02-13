@@ -24,13 +24,18 @@ class HDUParserStage() extends GraphStage[FlowShape[DataBlockWithHeader, DataBlo
           if(isInHeaders) {
             val (entete, block) = grab(in)
             primaryHeaders = entete
+
+            println("########################################     HDU  block      #####")
+
             val lines = block.utf8String
               .grouped(80).toList
               .map{s => s.header  }
               .filterNot{case (key,_)=> key.isEmpty}
 
             headers=headers++lines.toMap
-//            lines.foreach(println)
+
+            lines.foreach(println)
+
             if(lines.toMap.keySet.contains("END")){
               isInHeaders=false
               val dataLength = (
