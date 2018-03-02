@@ -7,7 +7,7 @@ import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
 import akka.util.ByteString
 import helloexoworld.fits.parser.pipeline.stages.dataformat._
 
-class BinTableStage(val filterList : List[String], val objectIdColName : String) extends GraphStage[FlowShape[DataBlockWithHeader, DataPoint]] {
+class BinTableStage(val filterList : List[String], val headersWanted : List[String]) extends GraphStage[FlowShape[DataBlockWithHeader, DataPoint]] {
 
   val in = Inlet[DataBlockWithHeader]("BintableParser.in")
   val out = Outlet[DataPoint]("BintableParser.out")
@@ -27,14 +27,18 @@ class BinTableStage(val filterList : List[String], val objectIdColName : String)
 
       setHandler(in, new InHandler {
         override def onPush(): Unit = {
-          val (headers, block) = grab(in)
+          val (isNewFile, headers, block) = grab(in)
           headers.get("XTENSION") match {
             case Some("'BINTABLE'") =>
+              if(isNewFile){
+                reste= ByteString("")
+                optDataTable = Some(DataTable(headers, headersWanted))
+                dataPointIndex=0
+              }
+           //   println("########################################   BINTABLE  block      #####")
+          //    println(headers)
               val buffer = reste.concat(block)
               reste = ByteString("")
-              if (!optDataTable.isDefined) {
-                optDataTable = Some(DataTable(headers, objectIdColName))
-              }
               val dataTable = optDataTable.get
               val liste = buffer
                 .grouped(dataTable.rowLength)
@@ -45,8 +49,8 @@ class BinTableStage(val filterList : List[String], val objectIdColName : String)
                   val time = dataTable.fields.head.fromByteString(bs).asInstanceOf[DoubleValue].value
                   val metrics = dataTable.fields.drop(1).flatMap{f=>
                     val value = f.fromByteString(bs)
-                    if(filterList.contains(f.name)||f.name=="TIME") {
-                      Some(MetricDataPoint(dataTable.objectId, dataPointIndex, f.name, value))
+                    if(filterList.contains(f.name)) {
+                      Some(MetricDataPoint(dataTable.headersWanted, dataPointIndex, f.name, value))
                     }else {None}
                   }
                   metrics.map(m=> DataPoint(m, time))
@@ -54,15 +58,15 @@ class BinTableStage(val filterList : List[String], val objectIdColName : String)
                 .flatten
                 .filter{dp => dp.index <= dataTable.rowsCount}
 
-              val blocIncomplet =  buffer
+              buffer
                 .grouped(dataTable.rowLength)
                 .filterNot(bs => bs.length==dataTable.rowLength)
                 .foreach(bs => reste = bs )
 
-              emitMultiple(out, liste, ()=>{
-              })
+              emitMultiple(out, liste, ()=>{})
 
             case _ =>
+             // println("drop non bintable block")
               pull(in)
           }
         }

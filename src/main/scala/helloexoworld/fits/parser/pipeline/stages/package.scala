@@ -6,7 +6,7 @@ import akka.util.ByteString
 
 package object dataformat {
 
-  type DataBlockWithHeader=Tuple2[Map[String, String],ByteString]
+  type DataBlockWithHeader=Tuple3[Boolean, Map[String, String],ByteString]
 
   implicit class String2Header(val stringValue : String){
     def header = {
@@ -22,7 +22,7 @@ package object dataformat {
         key.trim -> value.trim
       }
   }
-  case class DataTable(objectId : String, rowsCount: Int, colsCount : Int, rowLength : Int, fields : List[DataField])
+  case class DataTable(headersWanted : Map[String, String], rowsCount: Int, colsCount : Int, rowLength : Int, fields : List[DataField])
   case class DataField(name: String, fieldIndex: Int, format : FieldFormat, unit : String){
     def fromByteString(bs : ByteBuffer) : DataValue = format match{
       case FloatField => FloatValue(bs.getFloat)
@@ -34,10 +34,10 @@ package object dataformat {
   }
 
   object DataTable{
-    def apply(headers : Map[String, String], objectIdColName : String): DataTable = {
+    def apply(headers : Map[String, String], _headersWanted : List[String]): DataTable = {
       val colsCount = headers.getOrElse("TFIELDS", "0").toInt
       DataTable(
-        objectId = headers.get(objectIdColName).get,
+        headersWanted = headers.filter{case (k,v) => _headersWanted.contains(k)},
         rowsCount= headers.getOrElse("NAXIS2", "0").toInt,
         colsCount = colsCount,
         rowLength = headers.getOrElse("NAXIS1", "0").toInt,
@@ -55,14 +55,14 @@ package object dataformat {
 
   val timestamp0BJD = 2440587.5
   val BJD2timestampShift = 2454833 - timestamp0BJD
-  case class DataPoint(objectId: String, index : Int, time : Double, name:String, value:DataValue){
+  case class DataPoint(headers : Map[String, String], index : Int, time : Double, name:String, value:DataValue){
     val time2timestamp:Long = ((time + BJD2timestampShift) * 86400000L).toLong
   }
-  case class MetricDataPoint(objectId: String, index : Int, name:String, value:DataValue)
+  case class MetricDataPoint(headersWanted: Map[String,String], index : Int, name:String, value:DataValue)
 
   object DataPoint{
     def apply(metricDataPoint: MetricDataPoint, time: Double):DataPoint = DataPoint(
-      objectId = metricDataPoint.objectId,
+      headers = metricDataPoint.headersWanted,
       index = metricDataPoint.index,
       time= time,
       name = metricDataPoint.name,

@@ -8,52 +8,59 @@ import helloexoworld.fits.parser.pipeline.stages.dataformat.{ByteValue, DataPoin
 import com.clevercloud.warp10client._
 import org.http4s.Uri
 
-import scala.concurrent.Future
+import scala.concurrent.{Future, Promise}
 
-class Upload2Warp10Stage (uri:Uri, writeToken:String, dataSetSize:Int=1000) extends GraphStageWithMaterializedValue[SinkShape[DataPoint], Future[Done]] {
+class Upload2Warp10Stage (uri:Uri, writeToken:String, dataSetSize:Int=1000) extends GraphStageWithMaterializedValue[SinkShape[Warp10Data], Future[IOResult]] {
 
-  val in = Inlet[DataPoint]("Upload2Warp10.in")
+  val in = Inlet[Warp10Data]("Upload2Warp10.in")
 
   override def shape = SinkShape.of(in)
 
-  override def createLogicAndMaterializedValue(inheritedAttributes: Attributes): GraphStageLogic =
-    new GraphStageLogic(shape) {
+  override def createLogicAndMaterializedValue(inheritedAttributes: Attributes) = {
+    val result = Promise[IOResult]()
+    val logic = new GraphStageLogic(shape) {
       val w10client = new Warp10Client(uri, writeToken)
-      var dataset : Set[Warp10Data] = Set.empty
+      var dataset: Set[Warp10Data] = Set.empty
+      var dataPointCount =0
       setHandler(in, new InHandler {
 
         override def onPush(): Unit = {
-          val dataPoint = grab(in)
-          val time = dataPoint.time2timestamp*1000
+          val point = grab(in)
 
-          val point = Warp10Data(time, None, warp10Name(dataPoint.name), Set("objectId" -> dataPoint.objectId), warp10data(dataPoint.value))
-          
           dataset = dataset + point
-          if(dataset.size >= dataSetSize){
-            w10client.sendData(dataset).unsafePerformSyncAttempt.fold(error => failStage(error), x=>{println(x);pull(in)})
+          if (dataset.size >= dataSetSize) {
+            w10client.sendData(dataset).unsafePerformSyncAttempt.fold(error => failStage(error), x => {
+              dataPointCount += dataset.size
+              println(x);
+              pull(in)
+            })
             dataset = Set.empty
-          }else{
+          } else {
             pull(in)
           }
         }
-        
-        override def onUpstreamFinish():Unit={
-          w10client.sendData(dataset).unsafePerformSyncAttempt.fold(error => failStage(error), x=>println(x))
+
+        override def onUpstreamFinish(): Unit = {
+          w10client.sendData(dataset).unsafePerformSyncAttempt.fold(
+            error => {
+              failStage(error)
+              println(error)
+              result.trySuccess(IOResult.createFailed(dataPointCount, error))
+            },
+            x => {
+              dataPointCount += dataset.size
+              println(x)
+              result.trySuccess(IOResult.createSuccessful(dataPointCount))
+            })
         }
       })
 
       override def preStart(): Unit = pull(in)
-                                                              
+
+      override def postStop(): Unit = w10client.closeNow
+
     }
-
-  def warp10Name(name:String)= name.replace('_', '.').toLowerCase()
-
-  def warp10data(value: DataValue) = value match{
-    case data : FloatValue  => DoubleWarp10Value(data.value)
-    case data : DoubleValue => DoubleWarp10Value(data.value)
-    case data : IntValue    => IntWarp10Value(data.value)
-    case data : ByteValue   => IntWarp10Value(data.value)
-    case data : LongValue   => LongWarp10Value(data.value)
+    (logic, result.future)
   }
 
 }
