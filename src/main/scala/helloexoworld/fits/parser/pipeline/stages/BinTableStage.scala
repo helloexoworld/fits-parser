@@ -29,7 +29,7 @@ class BinTableStage(val filterList : List[String], val headersWanted : List[Stri
         override def onPush(): Unit = {
           val (isNewFile, headers, block) = grab(in)
           headers.get("XTENSION") match {
-            case Some("'BINTABLE'") =>
+            case Some("BINTABLE") =>
               if(isNewFile){
                 reste= ByteString("")
                 optDataTable = Some(DataTable(headers, headersWanted))
@@ -47,13 +47,18 @@ class BinTableStage(val filterList : List[String], val headersWanted : List[Stri
                   val bs = s.asByteBuffer
                   dataPointIndex = dataPointIndex + 1
                   val time = dataTable.fields.head.fromByteString(bs).asInstanceOf[DoubleValue].value
-                  val metrics = dataTable.fields.drop(1).flatMap{f=>
-                    val value = f.fromByteString(bs)
-                    if(filterList.contains(f.name)) {
-                      Some(MetricDataPoint(dataTable.headersWanted, dataPointIndex, f.name, value))
-                    }else {None}
-                  }
-                  metrics.map(m=> DataPoint(m, time))
+                 // if(!time.isNaN) {
+                    val metrics = dataTable.fields.drop(1).flatMap { f =>
+                      val value = f.fromByteString(bs)
+                      if (filterList.contains(f.name)) {
+                        Some(MetricDataPoint(dataTable.headersWanted, dataPointIndex, f.name, value))
+
+                      } else {
+                        None
+                      }
+                    }
+                    metrics.map(m => DataPoint(m, time))
+                //  }else{Seq.empty}
                 }
                 .flatten
                 .filter{dp => dp.index <= dataTable.rowsCount}

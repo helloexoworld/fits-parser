@@ -14,7 +14,7 @@ package object dataformat {
         val value = stringValue.substring(10) match {
           case s:String if s.startsWith("\'") =>
             val posQuote = s.indexOf('\'', 1)
-            s.substring(0, posQuote+1)
+            s.substring(1, posQuote)
           case s:String if s.indexOf ('/') < 11 => ""
           case s : String => s.substring (10, s.indexOf ('/') )
 

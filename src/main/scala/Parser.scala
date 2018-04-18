@@ -21,7 +21,7 @@ object Parser extends App{
 
   implicit val system = ActorSystem("QuickStart")
   implicit val materializer = ActorMaterializer()
-  val dir = Paths.get("datas_lc")
+  val dir = Paths.get(".")
   //Paths.get("/Users/emmanuelfeller/dev/git/github/helloexoworld/kepler-lens/kepler-data/lightcurves/public_Q0_long_1")
  // val file = Paths.get("ktwo200001049-c01_llc.fits")
   //val file = Paths.get("kplr002013502-2009131105131_llc.fits")
@@ -34,7 +34,7 @@ object Parser extends App{
     //val flowPath = builder.add(Flow.fromSinkAndSource())
     val pHDU = builder.add(new PrimaryHDUParserStage())
     val hdu = builder.add(new HDUParserStage())
-    val bintable = builder.add(new BinTableStage(List("SAP_FLUX", "PDCSAP_FLUX"), List("INSTRUME", "OBJECT", "KEPLERID", "MISSION")))
+    val bintable = builder.add(new BinTableStage(List("SAP_FLUX", "PDCSAP_FLUX"), List( "OBSMODE", "INSTRUME", "OBJECT", "KEPLERID", "MISSION")))
 /*
 INSTRUME= ‘Kepler Photometer’ / detector type
 OBJECT = ‘KIC 11853905’ / string version of target id
@@ -42,11 +42,10 @@ KEPLERID= 11853905 / unique Kepler target identifier
 MISSION = ‘Kepler ’ / Mission name
  */
     //flowPath ~> pHDU;
-    pHDU ~> hdu;
-    hdu ~> bintable;
+    pHDU ~> hdu ~> bintable;
     FlowShape(pHDU.in, bintable.out)
   }.named("parser")
-val fileName="result.warp10data.lc"
+val fileName="result.warp10data.debug"
  val f =new  File(fileName)
   val sink= FileIO.toFile(f)
 
@@ -73,7 +72,8 @@ val fileName="result.warp10data.lc"
     val flowByFile = Flow[Warp10Data].map{ s => ByteString(s.warp10Serialize+"\n")}
 
       Directory.ls(dir)
-       // .map{p=> println(p);p}
+        .filter(p => p.toString.endsWith(".fits"))
+        .map{p=> println(p);p}
 
         .flatMapConcat(f => FileIO.fromPath(f, 2880).zip(Source.repeat(f)))
         .map{case (bs, p) => (p, bs)} ~> balancedParsing ~> data2warp10Data ~>  flowByFile~>sink;
