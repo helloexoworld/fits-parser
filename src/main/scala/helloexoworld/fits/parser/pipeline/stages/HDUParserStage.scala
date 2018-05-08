@@ -2,7 +2,7 @@ package helloexoworld.fits.parser.pipeline.stages
 
 import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
-import helloexoworld.fits.parser.pipeline.stages.dataformat._
+import helloexoworld.fits.parser.dataformat._
 
 class HDUParserStage() extends GraphStage[FlowShape[DataBlockWithHeader, DataBlockWithHeader]] {
 
@@ -45,9 +45,7 @@ class HDUParserStage() extends GraphStage[FlowShape[DataBlockWithHeader, DataBlo
 
             if (lines.toMap.keySet.contains("END")) {
               isInHeaders = false
-              val dataLength = (
-                headers.get("NAXIS1").map(s => s.toInt).getOrElse(0)
-                  * headers.get("NAXIS2").map(s => s.toInt).getOrElse(0))
+              val dataLength = headers.get("NAXIS1").map(s => s.toInt).getOrElse(0) * headers.get("NAXIS2").map(s => s.toInt).getOrElse(0)
               val blocIncomplet = if (dataLength % 2880 > 0) {
                 1
               } else {

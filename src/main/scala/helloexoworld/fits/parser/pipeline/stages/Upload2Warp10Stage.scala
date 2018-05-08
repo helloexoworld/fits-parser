@@ -1,10 +1,7 @@
 package helloexoworld.fits.parser.pipeline.stages
 
-import akka.Done
 import akka.stream._
-import akka.stream.scaladsl.{Flow, Sink}
-import akka.stream.stage.{GraphStage, GraphStageLogic, GraphStageWithMaterializedValue, InHandler}
-import helloexoworld.fits.parser.pipeline.stages.dataformat.{ByteValue, DataPoint, DataValue, DoubleValue, FloatValue, IntValue, LongValue}
+import akka.stream.stage.{GraphStageLogic, GraphStageWithMaterializedValue, InHandler}
 import com.clevercloud.warp10client._
 import org.http4s.Uri
 

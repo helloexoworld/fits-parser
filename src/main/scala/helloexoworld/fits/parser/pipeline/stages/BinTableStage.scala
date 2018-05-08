@@ -1,11 +1,9 @@
 package helloexoworld.fits.parser.pipeline.stages
 
-import java.nio.ByteBuffer
-
 import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
 import akka.util.ByteString
-import helloexoworld.fits.parser.pipeline.stages.dataformat._
+import helloexoworld.fits.parser.dataformat._
 
 class BinTableStage(val filterList : List[String], val headersWanted : List[String]) extends GraphStage[FlowShape[DataBlockWithHeader, DataPoint]] {
 
@@ -43,11 +41,10 @@ class BinTableStage(val filterList : List[String], val headersWanted : List[Stri
               val liste = buffer
                 .grouped(dataTable.rowLength)
                 .filter(bs => bs.length==dataTable.rowLength)
-                .map{s =>
+                .flatMap{s =>
                   val bs = s.asByteBuffer
                   dataPointIndex = dataPointIndex + 1
                   val time = dataTable.fields.head.fromByteString(bs).asInstanceOf[DoubleValue].value
-                 // if(!time.isNaN) {
                     val metrics = dataTable.fields.drop(1).flatMap { f =>
                       val value = f.fromByteString(bs)
                       if (filterList.contains(f.name)) {
@@ -58,9 +55,7 @@ class BinTableStage(val filterList : List[String], val headersWanted : List[Stri
                       }
                     }
                     metrics.map(m => DataPoint(m, time))
-                //  }else{Seq.empty}
                 }
-                .flatten
                 .filter{dp => dp.index <= dataTable.rowsCount}
 
               buffer

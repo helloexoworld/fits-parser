@@ -2,12 +2,10 @@ package helloexoworld.fits.parser.pipeline.stages
 
 import java.nio.file.Path
 
-import akka.NotUsed
-import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import akka.stream.stage._
+import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import akka.util.ByteString
-import helloexoworld.fits.parser.pipeline.stages.dataformat.DataBlockWithHeader
-import helloexoworld.fits.parser.pipeline.stages.dataformat.String2Header
+import helloexoworld.fits.parser.dataformat._
 
 class PrimaryHDUParserStage() extends GraphStage[FlowShape[Tuple2[Path, ByteString], DataBlockWithHeader]] {
 

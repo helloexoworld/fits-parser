@@ -1,8 +1,9 @@
-package helloexoworld.fits.parser.pipeline.stages
+package helloexoworld.fits.parser
 
 import java.nio.ByteBuffer
 
 import akka.util.ByteString
+import com.clevercloud.warp10client.{DoubleWarp10Value, IntWarp10Value, LongWarp10Value, Warp10Data}
 
 package object dataformat {
 
@@ -60,7 +61,22 @@ package object dataformat {
   }
   case class MetricDataPoint(headersWanted: Map[String,String], index : Int, name:String, value:DataValue)
 
-  object DataPoint{
+  object DataPoint {
+    def toWarp10Data(dataPoint: DataPoint) = {
+      def warp10Name(name:String)= name.replace('_', '.').toLowerCase()
+
+      def warp10data(value: DataValue) = value match{
+        case data : FloatValue  => DoubleWarp10Value(data.value)
+        case data : DoubleValue => DoubleWarp10Value(data.value)
+        case data : IntValue    => IntWarp10Value(data.value)
+        case data : ByteValue   => IntWarp10Value(data.value)
+        case data : LongValue   => LongWarp10Value(data.value)
+      }
+
+      val time = dataPoint.time2timestamp * 1000
+      Warp10Data(time, None, warp10Name(dataPoint.name), dataPoint.headers.toSet, warp10data(dataPoint.value))
+    }
+
     def apply(metricDataPoint: MetricDataPoint, time: Double):DataPoint = DataPoint(
       headers = metricDataPoint.headersWanted,
       index = metricDataPoint.index,
