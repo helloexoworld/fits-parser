@@ -18,8 +18,11 @@ class BinTableStage(val filterList : List[String], val headersWanted : List[Stri
       var dataBlockRemining = 0
 
       var dataPointIndex = 0
+      var fields : List[DataField] = List.empty
 
-      var optDataTable : Option[DataTable] = None
+      var dataTable : DataTable=_
+
+      var headersWantedSet:Set[(String, String)]=Set.empty
 
       var reste : ByteString = ByteString("")
 
@@ -28,35 +31,44 @@ class BinTableStage(val filterList : List[String], val headersWanted : List[Stri
           val (isNewFile, headers, block) = grab(in)
           headers.get("XTENSION") match {
             case Some("BINTABLE") =>
-              if(isNewFile){
-                reste= ByteString("")
-                optDataTable = Some(DataTable(headers, headersWanted))
-                dataPointIndex=0
+              if (isNewFile) {
+                reste = ByteString("")
+                dataTable = DataTable(headers, headersWanted)
+                dataPointIndex = 0
+                headersWantedSet = dataTable.headersWanted.toSet
+                fields = dataTable.fields.drop(1) // TIME is always the first data
               }
-           //   println("########################################   BINTABLE  block      #####")
-          //    println(headers)
+              //   println("########################################   BINTABLE  block      #####")
+              //    println(headers)
               val buffer = reste.concat(block)
               reste = ByteString("")
-              val dataTable = optDataTable.get
               val liste = buffer
                 .grouped(dataTable.rowLength)
-                .filter(bs => bs.length==dataTable.rowLength)
-                .flatMap{s =>
-                  val bs = s.asByteBuffer
-                  dataPointIndex = dataPointIndex + 1
-                  val time = dataTable.fields.head.fromByteString(bs).asInstanceOf[DoubleValue].value
-                    val metrics = dataTable.fields.drop(1).flatMap { f =>
+                .filter(bs => bs.length == dataTable.rowLength)
+                .flatMap { s =>
+                  if (dataPointIndex >= dataTable.rowsCount) {
+                    None
+                  } else {
+                    val bs = s.asByteBuffer
+                    dataPointIndex = dataPointIndex + 1
+                    val time = bs.getDouble // timeField.fromByteString(bs).asInstanceOf[DoubleValue].value
+                    fields.flatMap { f =>
                       val value = f.fromByteString(bs)
-                      if (filterList.contains(f.name)) {
-                        Some(MetricDataPoint(dataTable.headersWanted, dataPointIndex, f.name, value))
-
-                      } else {
+                      if (filterList.contains(f.name))
+                        Some(
+                          DataPoint(
+                            labels = headersWantedSet,
+                            index = dataPointIndex,
+                            time = time,
+                            name = f.name,
+                            value = value
+                          )
+                        )
+                      else
                         None
-                      }
                     }
-                    metrics.map(m => DataPoint(m, time))
+                  }
                 }
-                .filter{dp => dp.index <= dataTable.rowsCount}
 
               buffer
                 .grouped(dataTable.rowLength)

@@ -23,6 +23,7 @@ package object dataformat {
         key.trim -> value.trim
       }
   }
+
   case class DataTable(headersWanted : Map[String, String], rowsCount: Int, colsCount : Int, rowLength : Int, fields : List[DataField])
   case class DataField(name: String, fieldIndex: Int, format : FieldFormat, unit : String){
     def fromByteString(bs : ByteBuffer) : DataValue = format match{
@@ -56,10 +57,10 @@ package object dataformat {
 
   val timestamp0BJD = 2440587.5
   val BJD2timestampShift = 2454833 - timestamp0BJD
-  case class DataPoint(headers : Map[String, String], index : Int, time : Double, name:String, value:DataValue){
+  case class DataPoint(labels : Set[(String, String)], index : Int, time : Double, name:String, value:DataValue){
     val time2timestamp:Long = ((time + BJD2timestampShift) * 86400000L).toLong
   }
-  case class MetricDataPoint(headersWanted: Map[String,String], index : Int, name:String, value:DataValue)
+  case class MetricDataPoint(labels: Set[(String,String)], index : Int, name:String, value:DataValue)
 
   object DataPoint {
     def toWarp10Data(dataPoint: DataPoint) = {
@@ -74,11 +75,11 @@ package object dataformat {
       }
 
       val time = dataPoint.time2timestamp * 1000
-      Warp10Data(time, None, warp10Name(dataPoint.name), dataPoint.headers.toSet, warp10data(dataPoint.value))
+      Warp10Data(time, None, warp10Name(dataPoint.name), dataPoint.labels, warp10data(dataPoint.value))
     }
 
     def apply(metricDataPoint: MetricDataPoint, time: Double):DataPoint = DataPoint(
-      headers = metricDataPoint.headersWanted,
+      labels = metricDataPoint.labels,
       index = metricDataPoint.index,
       time= time,
       name = metricDataPoint.name,
@@ -88,6 +89,7 @@ package object dataformat {
   }
   sealed trait FieldFormat {
     def letter: String
+    def length: Int=8
   }
   object FieldFormat{
     def format(letter : String):FieldFormat= letter.replace('\'', ' ').trim match{
@@ -98,10 +100,10 @@ package object dataformat {
       case "D" => DoubleField
     }
   }
-  case object ByteField   extends FieldFormat{val letter="B"}
-  case object IntField    extends FieldFormat{val letter="I"}
+  case object ByteField   extends FieldFormat{val letter="B"; override val length=1}
+  case object IntField    extends FieldFormat{val letter="I"; override val length=4}
   case object LongField   extends FieldFormat{val letter="J"}
-  case object FloatField  extends FieldFormat{val letter="E"}
+  case object FloatField  extends FieldFormat{val letter="E"; override val length=4}
   case object DoubleField extends FieldFormat{val letter="D"}
 
   sealed trait DataValue
